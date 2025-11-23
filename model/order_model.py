@@ -102,13 +102,22 @@ def place_order(order):
     except (ValueError, TypeError):
         order["total"] = 0
 
-    # Coerce item prices and quantities to numeric types
+    # Validate and coerce item prices and quantities to numeric types
     for item in order.get("items", []) or []:
+        # Quantity validation: required and must be >= 1
+        if "quantity" not in item:
+            raise ValueError(f"Quantity is required for item: {item.get('sweetName', 'Unknown')}")
+        
         try:
-            if "quantity" in item:
-                item["quantity"] = float(item.get("quantity", 0) or 0)
-        except (ValueError, TypeError):
-            item["quantity"] = 0
+            quantity = float(item.get("quantity", 0) or 0)
+            if quantity < 1:
+                raise ValueError(f"Quantity must be at least 1 for item: {item.get('sweetName', 'Unknown')}")
+            item["quantity"] = quantity
+        except (ValueError, TypeError) as e:
+            if "must be at least 1" in str(e):
+                raise
+            raise ValueError(f"Invalid quantity for item: {item.get('sweetName', 'Unknown')}")
+        
         try:
             if "price" in item:
                 item["price"] = float(item.get("price", 0) or 0)
@@ -129,12 +138,21 @@ def _serialize_datetimes(doc):
     return doc
 
 def _serialize_order(doc):
-    """Normalize an order document for API responses (stringify _id and datetimes)."""
+    """Normalize an order document for API responses (stringify _id and datetimes).
+    Also ensures legacy orders have quantity defaulted to 1 for each item.
+    """
     if not doc:
         return None
     doc = dict(doc)
     if doc.get("_id") is not None:
         doc["_id"] = str(doc["_id"])
+    
+    # Handle legacy orders: ensure all items have quantity field (default to 1)
+    if "items" in doc and isinstance(doc["items"], list):
+        for item in doc["items"]:
+            if isinstance(item, dict) and "quantity" not in item:
+                item["quantity"] = 1
+    
     return _serialize_datetimes(doc)
 
 def get_orders():
@@ -300,17 +318,28 @@ def edit_order(order_id: str, updates: dict):
             except (ValueError, TypeError):
                 v = 0
         if dest == "items" and isinstance(v, list):
-            # Coerce numeric fields inside items
+            # Validate and coerce numeric fields inside items
             norm_items = []
             for item in v:
                 if not isinstance(item, dict):
                     continue
                 itm = dict(item)
+                
+                # Validate quantity if present (must be >= 1)
                 try:
                     if "quantity" in itm:
-                        itm["quantity"] = float(itm.get("quantity", 0) or 0)
-                except (ValueError, TypeError):
-                    itm["quantity"] = 0
+                        qty = float(itm.get("quantity", 0) or 0)
+                        if qty < 1:
+                            raise ValueError(f"Quantity must be at least 1 for item: {itm.get('sweetName', 'Unknown')}")
+                        itm["quantity"] = qty
+                    else:
+                        # Default to 1 if not provided
+                        itm["quantity"] = 1
+                except (ValueError, TypeError) as e:
+                    if "must be at least 1" in str(e):
+                        raise
+                    itm["quantity"] = 1
+                
                 try:
                     if "price" in itm:
                         itm["price"] = float(itm.get("price", 0) or 0)

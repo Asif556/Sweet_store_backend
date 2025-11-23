@@ -56,7 +56,20 @@ def new_order():
             error_msg = f"Missing sweetId for item: {item.get('sweetName', 'Unknown')}"
             print(f"❌ {error_msg}")
             return jsonify({"error": error_msg}), 400
-        if not item.get("quantity") or item.get("quantity") <= 0:
+        
+        # Validate quantity: required and must be >= 1
+        if "quantity" not in item:
+            error_msg = f"Missing quantity for item: {item.get('sweetName', 'Unknown')}"
+            print(f"❌ {error_msg}")
+            return jsonify({"error": error_msg}), 400
+        
+        try:
+            quantity = float(item.get("quantity", 0))
+            if quantity < 1:
+                error_msg = f"Quantity must be at least 1 for item: {item.get('sweetName', 'Unknown')}"
+                print(f"❌ {error_msg}")
+                return jsonify({"error": error_msg}), 400
+        except (ValueError, TypeError):
             error_msg = f"Invalid quantity for item: {item.get('sweetName', 'Unknown')}"
             print(f"❌ {error_msg}")
             return jsonify({"error": error_msg}), 400
