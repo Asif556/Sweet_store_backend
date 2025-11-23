@@ -2,10 +2,37 @@ from pymongo import MongoClient, ReturnDocument
 from bson import ObjectId
 import os
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, date
 import ssl
 
 load_dotenv()
+
+def validate_dates(order_date_str, delivery_date_str):
+    """Validate that order and delivery dates are valid and meet business rules.
+    Returns (True, None) if valid, or (False, error_message) if invalid.
+    """
+    try:
+        # Parse dates from YYYY-MM-DD format
+        order_date = datetime.strptime(order_date_str, "%Y-%m-%d").date()
+        delivery_date = datetime.strptime(delivery_date_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return False, "Invalid date format. Expected YYYY-MM-DD."
+    
+    today = date.today()
+    
+    # Check if orderDate is not in the past (allow today)
+    if order_date < today:
+        return False, "Order date cannot be in the past."
+    
+    # Check if deliveryDate is not in the past
+    if delivery_date < today:
+        return False, "Delivery date cannot be in the past."
+    
+    # Check if deliveryDate is >= orderDate
+    if delivery_date < order_date:
+        return False, "Delivery date must be on or after the order date."
+    
+    return True, None
 
 MONGO_URI = os.getenv("MONGO_URI")
 if not MONGO_URI:
@@ -49,14 +76,24 @@ def place_order(order):
     """Place a new order in the database with delivery date support."""
     if order_collection is None:
         raise RuntimeError("Database not connected: cannot place order")
+    
+    # Validate required date fields
+    if "orderDate" not in order or not order["orderDate"]:
+        raise ValueError("Order date is required")
+    if "deliveryDate" not in order or not order["deliveryDate"]:
+        raise ValueError("Delivery date is required")
+    
+    # Validate dates
+    is_valid, error_msg = validate_dates(order["orderDate"], order["deliveryDate"])
+    if not is_valid:
+        raise ValueError(error_msg)
+    
     now = datetime.now()
-    order["orderDate"] = now.strftime("%Y-%m-%d")
     order["createdAt"] = now
     
-    # Store delivery date if provided
-    if "deliveryDate" in order and order["deliveryDate"]:
-        # Keep delivery date as string in YYYY-MM-DD format
-        order["deliveryDate"] = order["deliveryDate"]
+    # Store both dates as strings in YYYY-MM-DD format
+    order["orderDate"] = order["orderDate"]
+    order["deliveryDate"] = order["deliveryDate"]
     
     # Ensure numeric fields are stored as numbers
     try:
@@ -101,11 +138,26 @@ def _serialize_order(doc):
     return _serialize_datetimes(doc)
 
 def get_orders():
-    """Retrieve all orders, sorted by creation date (newest first), including _id as string."""
+    """Retrieve all orders, sorted by delivery date (ascending), including _id as string.
+    Orders without deliveryDate will be sorted to the end.
+    """
     if order_collection is None:
         print("⚠️ Database not connected; returning empty orders list")
         return []
-    docs = list(order_collection.find({}).sort("createdAt", -1))
+    # Sort by deliveryDate ascending (1), nulls last
+    # MongoDB sorts null/missing values first, so we need a pipeline to handle this
+    pipeline = [
+        {
+            "$addFields": {
+                "deliveryDateSort": {
+                    "$ifNull": ["$deliveryDate", "9999-12-31"]
+                }
+            }
+        },
+        {"$sort": {"deliveryDateSort": 1}},
+        {"$project": {"deliveryDateSort": 0}}
+    ]
+    docs = list(order_collection.aggregate(pipeline))
     return [_serialize_order(d) for d in docs]
 
 def get_daily_summary():
@@ -192,6 +244,7 @@ def update_order_status(order_id: str, status: str):
 def edit_order(order_id: str, updates: dict):
     """Update provided fields of an order and return the updated document.
     Supports field mapping: contact->mobile, amount->total.
+    Validates deliveryDate if being updated.
     Returns None if order not found.
     """
     if order_collection is None:
@@ -200,6 +253,26 @@ def edit_order(order_id: str, updates: dict):
         oid = ObjectId(order_id)
     except Exception:
         return None
+    
+    # If deliveryDate is being updated, validate it against orderDate
+    if "deliveryDate" in updates and updates["deliveryDate"]:
+        # Fetch current order to get orderDate
+        current_order = order_collection.find_one({"_id": oid})
+        if not current_order:
+            return None
+        
+        order_date = current_order.get("orderDate")
+        if not order_date:
+            # For legacy orders without orderDate, use createdAt date
+            if "createdAt" in current_order:
+                order_date = current_order["createdAt"].strftime("%Y-%m-%d")
+            else:
+                order_date = datetime.now().strftime("%Y-%m-%d")
+        
+        # Validate the new delivery date
+        is_valid, error_msg = validate_dates(order_date, updates["deliveryDate"])
+        if not is_valid:
+            raise ValueError(error_msg)
 
     field_map = {
         "customerName": "customerName",
@@ -210,6 +283,7 @@ def edit_order(order_id: str, updates: dict):
         "address": "address",
         "mobile": "mobile",
         "total": "total",
+        "orderDate": "orderDate",
         "deliveryDate": "deliveryDate",
         "preference": "preference",
         "items": "items",

@@ -34,10 +34,17 @@ def new_order():
         print("❌ Empty order: no items provided")
         return jsonify({"error": "Order must contain at least one item"}), 400
     
-    # Validate delivery date if provided
-    delivery_date = data.get("deliveryDate")
-    if delivery_date:
-        print(f"📅 Delivery Date: {delivery_date}")
+    # Validate required date fields
+    if "orderDate" not in data or not data.get("orderDate"):
+        print("❌ Missing required field: orderDate")
+        return jsonify({"error": "Order date is required"}), 400
+    
+    if "deliveryDate" not in data or not data.get("deliveryDate"):
+        print("❌ Missing required field: deliveryDate")
+        return jsonify({"error": "Delivery date is required"}), 400
+    
+    print(f"📅 Order Date: {data.get('orderDate')}")
+    print(f"📅 Delivery Date: {data.get('deliveryDate')}")
     
     print(f"\n📦 Order Details:")
     print(f"   Customer: {data.get('customerName', 'Unknown')}")
