@@ -57,6 +57,11 @@ def add_sweet(data):
     except (ValueError, TypeError):
         rate_val = 0
 
+    # Validate and normalize unit field
+    unit = data.get("unit", "kg").strip().lower()
+    if unit not in ["piece", "kg"]:
+        unit = "kg"  # Default to 'kg' if invalid
+
     doc = {
         "name": data.get("name", "").strip(),
         "rate": rate_val,
@@ -64,6 +69,7 @@ def add_sweet(data):
         # Accept multiple possible keys from frontend and store as image_url
         "image_url": data.get("image_url") or data.get("imageUrl") or data.get("image") or "",
         "category": data.get("category", "").strip(),
+        "unit": unit,
     }
 
     sweet_collection.insert_one(doc)
@@ -82,12 +88,14 @@ def get_sweets(category: str | None = None):
         if cat:
             query["category"] = re.compile(re.escape(cat), re.IGNORECASE)
     docs = list(sweet_collection.find(query))
-    # Backfill category for older records
+    # Backfill category and unit for older records
     for d in docs:
         if d.get("_id") is not None:
             d["_id"] = str(d["_id"])
         if "category" not in d:
             d["category"] = "Uncategorized"
+        if "unit" not in d:
+            d["unit"] = "kg"  # Default to 'kg' for backward compatibility
     return docs
 
 def get_sweet_by_id(id_str: str):
@@ -103,6 +111,9 @@ def get_sweet_by_id(id_str: str):
         return None
     # Normalize id to string for callers
     doc["_id"] = str(doc["_id"]) if doc.get("_id") is not None else None
+    # Backfill unit for backward compatibility
+    if "unit" not in doc:
+        doc["unit"] = "kg"
     return doc
 
 def remove_sweet(name):

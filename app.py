@@ -108,6 +108,12 @@ def admin_add_sweet():
     if "category" not in data or not str(data.get("category", "")).strip():
         return jsonify({"error": "Missing required field: category"}), 400
 
+    # Validate unit field if provided
+    if "unit" in data:
+        unit_value = str(data.get("unit", "")).strip().lower()
+        if unit_value not in ["piece", "kg"]:
+            return jsonify({"error": "Invalid unit. Must be 'piece' or 'kg'"}), 400
+
     existing_id = data.get("existingSweetId")
     base = {}
 
@@ -120,6 +126,7 @@ def admin_add_sweet():
             "rate": found.get("rate", 0),
             "description": found.get("description", ""),
             "image_url": found.get("image_url") or found.get("imageUrl") or "",
+            "unit": found.get("unit", "kg"),
         }
         # Merge with overrides from the request body
         payload = {
@@ -128,6 +135,7 @@ def admin_add_sweet():
             "description": data.get("description", base["description"]),
             "image_url": data.get("image_url") or data.get("imageUrl") or base["image_url"],
             "category": data.get("category"),
+            "unit": data.get("unit", base["unit"]),
         }
     else:
         # For manual entry, require name and rate

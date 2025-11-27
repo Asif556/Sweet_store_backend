@@ -123,6 +123,12 @@ def place_order(order):
                 item["price"] = float(item.get("price", 0) or 0)
         except (ValueError, TypeError):
             item["price"] = 0
+        
+        # Store unit field (default to 'kg' if not provided)
+        unit = item.get("unit", "kg").strip().lower()
+        if unit not in ["piece", "kg"]:
+            unit = "kg"
+        item["unit"] = unit
 
     order_collection.insert_one(order)
 
@@ -139,7 +145,7 @@ def _serialize_datetimes(doc):
 
 def _serialize_order(doc):
     """Normalize an order document for API responses (stringify _id and datetimes).
-    Also ensures legacy orders have quantity defaulted to 1 for each item.
+    Also ensures legacy orders have quantity and unit defaulted for each item.
     """
     if not doc:
         return None
@@ -147,11 +153,14 @@ def _serialize_order(doc):
     if doc.get("_id") is not None:
         doc["_id"] = str(doc["_id"])
     
-    # Handle legacy orders: ensure all items have quantity field (default to 1)
+    # Handle legacy orders: ensure all items have quantity and unit fields
     if "items" in doc and isinstance(doc["items"], list):
         for item in doc["items"]:
-            if isinstance(item, dict) and "quantity" not in item:
-                item["quantity"] = 1
+            if isinstance(item, dict):
+                if "quantity" not in item:
+                    item["quantity"] = 1
+                if "unit" not in item:
+                    item["unit"] = "kg"  # Default to 'kg' for backward compatibility
     
     return _serialize_datetimes(doc)
 
@@ -345,6 +354,13 @@ def edit_order(order_id: str, updates: dict):
                         itm["price"] = float(itm.get("price", 0) or 0)
                 except (ValueError, TypeError):
                     itm["price"] = 0
+                
+                # Store unit field (default to 'kg' if not provided)
+                unit = itm.get("unit", "kg").strip().lower()
+                if unit not in ["piece", "kg"]:
+                    unit = "kg"
+                itm["unit"] = unit
+                
                 norm_items.append(itm)
             v = norm_items
         set_payload[dest] = v
