@@ -30,6 +30,12 @@ def fetch_sweets():
     # Log response size for debugging
     if sweets:
         print(f"📤 Returning {len(sweets)} sweet(s) to frontend")
+        # Log details of first sweet for verification
+        if len(sweets) > 0 and sweets[0].get('image'):
+            print(f"   First sweet: {sweets[0].get('name')}")
+            print(f"   Unit: {sweets[0].get('unit')}")
+            print(f"   Image length: {len(sweets[0].get('image', ''))} chars")
+            print(f"   Has valid base64: {str(sweets[0].get('image', '')).startswith('data:image/')}")
     
     return jsonify(sweets)
 
