@@ -47,7 +47,9 @@ sweet_collection = db["sweets"] if db is not None else None
 
 
 def add_sweet(data):
-    """Add a new sweet to the database, including category and normalized fields."""
+    """Add a new sweet to the database, including category and normalized fields.
+    Accepts and stores base64 image strings without modification.
+    """
     if sweet_collection is None:
         raise RuntimeError("Database not connected: cannot add sweet")
 
@@ -62,21 +64,37 @@ def add_sweet(data):
     if unit not in ["piece", "kg"]:
         unit = "kg"  # Default to 'kg' if invalid
 
+    # Accept image from multiple keys: image, image_url, or imageUrl
+    image_data = data.get("image") or data.get("image_url") or data.get("imageUrl") or ""
+    
+    # Validate base64 image format if image is provided
+    if image_data:
+        if not isinstance(image_data, str):
+            raise ValueError("Image must be a string")
+        if not image_data.startswith('data:image/'):
+            raise ValueError("Invalid image format. Must be a base64 data URI starting with 'data:image/'")
+        print(f"📸 Storing image for '{data.get('name', 'Unknown')}' - Length: {len(image_data)} characters")
+        print(f"   Image starts with: {image_data[:50]}...")
+    else:
+        print(f"⚠️ No image provided for '{data.get('name', 'Unknown')}'")
+
     doc = {
         "name": data.get("name", "").strip(),
         "rate": rate_val,
         "description": data.get("description", ""),
-        # Accept multiple possible keys from frontend and store as image_url
-        "image_url": data.get("image_url") or data.get("imageUrl") or data.get("image") or "",
+        # Store as 'image' field to match common frontend expectations
+        "image": image_data,
         "category": data.get("category", "").strip(),
         "unit": unit,
     }
 
-    sweet_collection.insert_one(doc)
+    result = sweet_collection.insert_one(doc)
+    print(f"✅ Sweet '{doc['name']}' added successfully with ID: {result.inserted_id}")
 
 def get_sweets(category: str | None = None):
     """Get sweets from the database with optional category filter.
     Includes '_id' (as string) and ensures 'category' in the result.
+    Returns complete image field without modification.
     """
     if sweet_collection is None:
         print("⚠️ Database not connected; returning empty sweets list")
@@ -88,7 +106,7 @@ def get_sweets(category: str | None = None):
         if cat:
             query["category"] = re.compile(re.escape(cat), re.IGNORECASE)
     docs = list(sweet_collection.find(query))
-    # Backfill category and unit for older records
+    # Backfill category and unit for older records, normalize image field
     for d in docs:
         if d.get("_id") is not None:
             d["_id"] = str(d["_id"])
@@ -96,10 +114,23 @@ def get_sweets(category: str | None = None):
             d["category"] = "Uncategorized"
         if "unit" not in d:
             d["unit"] = "kg"  # Default to 'kg' for backward compatibility
+        
+        # Normalize image field: ensure 'image' field exists
+        # Support legacy records that may have 'image_url' or 'imageUrl'
+        if "image" not in d:
+            d["image"] = d.get("image_url") or d.get("imageUrl") or ""
+        
+        # Log image info for debugging (only first sweet to avoid spam)
+        if docs.index(d) == 0 and d.get("image"):
+            print(f"📸 Returning sweet '{d.get('name')}' - Image length: {len(d['image'])} characters")
+            print(f"   Image starts with: {d['image'][:50]}...")
+    
     return docs
 
 def get_sweet_by_id(id_str: str):
-    """Fetch a single sweet by its ObjectId string. Returns dict or None."""
+    """Fetch a single sweet by its ObjectId string. Returns dict or None.
+    Returns complete image field without modification.
+    """
     if sweet_collection is None:
         return None
     try:
@@ -114,6 +145,12 @@ def get_sweet_by_id(id_str: str):
     # Backfill unit for backward compatibility
     if "unit" not in doc:
         doc["unit"] = "kg"
+    
+    # Normalize image field: ensure 'image' field exists
+    # Support legacy records that may have 'image_url' or 'imageUrl'
+    if "image" not in doc:
+        doc["image"] = doc.get("image_url") or doc.get("imageUrl") or ""
+    
     return doc
 
 def remove_sweet(name):

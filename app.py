@@ -4,13 +4,34 @@ from model.sweet_model import add_sweet, get_sweets, remove_sweet, get_sweet_by_
 from model.order_model import place_order, get_orders, get_daily_summary, update_order_status, edit_order
 
 app = Flask(__name__)
-CORS(app)
+
+# Configure CORS to handle large responses with base64 images
+CORS(app, resources={
+    r"/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "expose_headers": ["Content-Type"],
+        "max_age": 3600
+    }
+})
+
+# Increase max content length to handle large base64 images (16MB)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 @app.route("/sweets", methods=["GET"])
 def fetch_sweets():
-    """Get all available sweets."""
+    """Get all available sweets with complete image data.
+    Returns full base64 image strings without truncation.
+    """
     category = request.args.get("category")
-    return jsonify(get_sweets(category))
+    sweets = get_sweets(category)
+    
+    # Log response size for debugging
+    if sweets:
+        print(f"📤 Returning {len(sweets)} sweet(s) to frontend")
+    
+    return jsonify(sweets)
 
 @app.route("/place_order", methods=["POST"])
 def new_order():
@@ -97,6 +118,7 @@ def new_order():
 @app.route("/admin/add_sweet", methods=["POST"])
 def admin_add_sweet():
     """Add a new sweet to the inventory.
+    Accepts base64 image strings and stores them without modification.
     Supports optional existingSweetId: if provided, use its details unless overridden by payload.
     """
     data = request.get_json()
@@ -113,6 +135,15 @@ def admin_add_sweet():
         unit_value = str(data.get("unit", "")).strip().lower()
         if unit_value not in ["piece", "kg"]:
             return jsonify({"error": "Invalid unit. Must be 'piece' or 'kg'"}), 400
+    
+    # Validate image format if provided (accept from 'image', 'image_url', or 'imageUrl')
+    image_data = data.get("image") or data.get("image_url") or data.get("imageUrl")
+    if image_data:
+        if not isinstance(image_data, str):
+            return jsonify({"error": "Image must be a string"}), 400
+        if not image_data.startswith('data:image/'):
+            return jsonify({"error": "Invalid image format. Must be a base64 data URI starting with 'data:image/'"}), 400
+        print(f"📸 Received image - Length: {len(image_data)} characters")
 
     existing_id = data.get("existingSweetId")
     base = {}
@@ -125,7 +156,7 @@ def admin_add_sweet():
             "name": found.get("name", ""),
             "rate": found.get("rate", 0),
             "description": found.get("description", ""),
-            "image_url": found.get("image_url") or found.get("imageUrl") or "",
+            "image": found.get("image") or found.get("image_url") or found.get("imageUrl") or "",
             "unit": found.get("unit", "kg"),
         }
         # Merge with overrides from the request body
@@ -133,7 +164,7 @@ def admin_add_sweet():
             "name": data.get("name", base["name"]),
             "rate": data.get("rate", base["rate"]),
             "description": data.get("description", base["description"]),
-            "image_url": data.get("image_url") or data.get("imageUrl") or base["image_url"],
+            "image": data.get("image") or data.get("image_url") or data.get("imageUrl") or base["image"],
             "category": data.get("category"),
             "unit": data.get("unit", base["unit"]),
         }
@@ -142,11 +173,17 @@ def admin_add_sweet():
         for field in ["name", "rate"]:
             if field not in data:
                 return jsonify({"error": f"Missing required field: {field}"}), 400
-        payload = data
+        # Normalize image field name to 'image'
+        payload = dict(data)
+        if "image_url" in payload or "imageUrl" in payload:
+            payload["image"] = payload.get("image") or payload.get("image_url") or payload.get("imageUrl")
 
     try:
         add_sweet(payload)
         return jsonify({"message": "Sweet added successfully", "sweet": payload.get("name")}), 201
+    except ValueError as e:
+        # Handle validation errors (e.g., invalid image format)
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": f"Failed to add sweet: {str(e)}"}), 500
 
