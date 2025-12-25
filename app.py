@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from model.sweet_model import add_sweet, get_sweets, remove_sweet, get_sweet_by_id
 from model.order_model import place_order, get_orders, get_daily_summary, update_order_status, edit_order
+from datetime import date, datetime, timedelta
 
 app = Flask(__name__)
 
@@ -38,6 +39,15 @@ def fetch_sweets():
             print(f"   Has valid base64: {str(sweets[0].get('image', '')).startswith('data:image/')}")
     
     return jsonify(sweets)
+
+@app.route("/server-date", methods=["GET"])
+def get_server_date():
+    """Get the server's current date in IST timezone."""
+    # Add 5.5 hours to UTC to get IST (India Standard Time)
+    ist_time = datetime.utcnow() + timedelta(hours=5, minutes=30)
+    return jsonify({
+        "date": ist_time.date().isoformat()
+    })
 
 @app.route("/place_order", methods=["POST"])
 def new_order():
